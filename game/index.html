@@ -3,17 +3,138 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Dodger</title>
+<title>Saltline City — an original open-world crime game</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1026;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: #f4f6fb;
+    -webkit-user-select: none; user-select: none; }
+  #scene { position: fixed; inset: 0; display: block; }
   /* Read aloud, never shown: the status line screen readers announce. */
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; }
+  #hud.on { display: block; }
+  .panel { background: rgba(8, 12, 24, .55); border: 1px solid rgba(120, 200, 255, .25);
+    border-radius: 10px; backdrop-filter: blur(2px); }
+  #vitals { position: absolute; left: 16px; top: 14px; padding: 9px 12px; min-width: 168px; }
+  #healthWrap { height: 10px; background: rgba(255,255,255,.14); border-radius: 5px; overflow: hidden; margin-bottom: 6px; }
+  #healthBar { height: 100%; width: 100%; background: linear-gradient(90deg, #ff2e88, #ff7a59); transition: width .15s; }
+  #armourRow { font-size: 12px; letter-spacing: .12em; color: #9fd8ef; display: flex; justify-content: space-between; }
+  #money { color: #7dff9a; font-weight: 700; font-size: 17px; text-shadow: 0 1px 3px #000; }
+  #wanted { position: absolute; right: 16px; top: 12px; font-size: 27px; letter-spacing: 3px;
+    color: rgba(255,255,255,.18); text-shadow: 0 2px 5px rgba(0,0,0,.7); padding: 2px 8px; }
+  #wanted .lit { color: #ffd23e; text-shadow: 0 0 9px rgba(255, 190, 30, .9), 0 2px 4px #000; }
+  #wanted.hidden { display: none; }
+  #objective { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); max-width: 560px;
+    padding: 8px 16px; text-align: center; font-size: 15px; line-height: 1.35; display: none; }
+  #objective b { color: #ffd23e; }
+  #objective .sub { display: block; font-size: 12.5px; color: #bcd7ea; margin-top: 2px; }
+  #minimapWrap { position: absolute; left: 16px; bottom: 16px; padding: 6px; }
+  #minimap { display: block; width: 186px; height: 186px; }
+  #speedo { position: absolute; right: 18px; bottom: 16px; padding: 8px 14px; text-align: right; display: none; }
+  #speedo .num { font-size: 30px; font-weight: 800; line-height: 1; }
+  #speedo .unit { font-size: 11px; letter-spacing: .2em; color: #9fd8ef; }
+  #prompt { position: absolute; bottom: 118px; left: 50%; transform: translateX(-50%);
+    padding: 7px 16px; font-size: 15px; display: none; }
+  #prompt kbd, .keys kbd { background: #1c2740; border: 1px solid #4a6b8a; border-bottom-width: 3px;
+    border-radius: 5px; padding: 0 7px; font-family: inherit; font-weight: 700; color: #fff; }
+  #toast { position: absolute; bottom: 210px; left: 50%; transform: translateX(-50%); max-width: 620px;
+    padding: 10px 18px; font-size: 15.5px; text-align: center; display: none; line-height: 1.45; }
+  #toast .who { color: #22d3ee; font-weight: 700; }
+  #banner { position: absolute; top: 26%; left: 50%; transform: translateX(-50%); text-align: center; display: none; }
+  #banner .big { font-size: 44px; font-weight: 900; letter-spacing: .06em; color: #ffd23e;
+    text-shadow: 0 0 22px rgba(255, 180, 20, .55), 0 3px 8px #000; }
+  #banner .small { font-size: 18px; color: #eaf6ff; text-shadow: 0 2px 5px #000; margin-top: 4px; }
+  #crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    font-size: 22px; color: rgba(255,255,255,.85); text-shadow: 0 0 4px #000; display: none; }
+  #hitmarker { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(45deg);
+    font-size: 20px; color: #ff5252; display: none; font-weight: 900; }
+  #bustedMeter { position: absolute; bottom: 168px; left: 50%; transform: translateX(-50%); width: 240px; display: none; }
+  #bustedMeter .label { text-align: center; font-size: 12px; letter-spacing: .3em; color: #ff8080; margin-bottom: 4px; }
+  #bustedWrap { height: 8px; background: rgba(255,255,255,.15); border-radius: 4px; overflow: hidden; }
+  #bustedBar { height: 100%; width: 0%; background: #ff3b30; }
+  #damageVin { position: fixed; inset: 0; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(200, 0, 0, .5) 100%); }
+
+  /* ---------- menus ---------- */
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    flex-direction: column; text-align: center; z-index: 5; }
+  .screen.on { display: flex; }
+  #startScreen { background: linear-gradient(180deg, rgba(11,16,38,.25), rgba(11,16,38,.78) 78%); }
+  #startScreen h1 { font-size: 76px; margin: 0; font-weight: 900; letter-spacing: .02em; line-height: .95;
+    background: linear-gradient(92deg, #22d3ee 5%, #7dd3fc 30%, #ff2e88 68%, #ffb020 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 4px 14px rgba(0,0,0,.55)); }
+  #startScreen h2 { margin: 6px 0 0; font-weight: 600; letter-spacing: .42em; font-size: 15px; color: #ffe9a8; text-transform: uppercase; }
+  #startScreen .tag { margin-top: 14px; font-size: 16.5px; color: #dbeafe; max-width: 560px; line-height: 1.5; text-shadow: 0 2px 6px #000; }
+  .btn { pointer-events: auto; cursor: pointer; margin-top: 26px; padding: 13px 42px; font-size: 19px; font-weight: 800;
+    letter-spacing: .08em; color: #081018; background: linear-gradient(180deg, #ffd23e, #ff9d2e); border: 0; border-radius: 10px;
+    box-shadow: 0 6px 22px rgba(255, 160, 40, .45); }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.ghost { background: rgba(10, 16, 30, .65); color: #cfe8ff; border: 1px solid #4a6b8a; box-shadow: none; font-size: 15px; padding: 9px 24px; margin-top: 12px; }
+  .keys { margin-top: 24px; font-size: 13.5px; color: #b8cfe2; line-height: 2; text-shadow: 0 1px 3px #000; }
+  #startStats { margin-top: 16px; font-size: 14px; color: #9fd8ef; }
+  #pauseScreen, #endScreen { background: rgba(5, 8, 18, .72); }
+  #pauseScreen h1, #endScreen h1 { font-size: 54px; margin: 0 0 6px; letter-spacing: .1em; }
+  #endScreen h1.bad { color: #ff5147; text-shadow: 0 0 26px rgba(255, 40, 30, .5); }
+  #endScreen p, #pauseScreen p { color: #cfe0ee; font-size: 16px; max-width: 480px; line-height: 1.5; }
+  #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .5s; z-index: 9; }
 </style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.min.js" } }
+</script>
 </head>
 <body>
-<canvas id="game" aria-label="Block Dodger: move the paddle left and right to dodge falling blocks and catch coins"></canvas>
+<canvas id="scene" aria-label="Saltline City: a 3D open-world crime game. Walk and drive around a neon coastal city, take missions, outrun the police."></canvas>
 <p id="status" role="status" aria-live="polite"></p>
+
+<div id="hud">
+  <div id="vitals" class="panel">
+    <div id="healthWrap"><div id="healthBar"></div></div>
+    <div id="armourRow"><span>SALTLINE CITY</span><span id="money">$0</span></div>
+  </div>
+  <div id="wanted" class="hidden"></div>
+  <div id="objective" class="panel"></div>
+  <div id="minimapWrap" class="panel"><canvas id="minimap" width="372" height="372"></canvas></div>
+  <div id="speedo" class="panel"><div class="num">0</div><div class="unit">KM/H</div></div>
+  <div id="prompt"></div>
+  <div id="toast"></div>
+  <div id="banner"><div class="big"></div><div class="small"></div></div>
+  <div id="crosshair">+</div>
+  <div id="hitmarker">+</div>
+  <div id="bustedMeter"><div class="label">BUSTED</div><div id="bustedWrap"><div id="bustedBar"></div></div></div>
+</div>
+<div id="damageVin"></div>
+
+<div id="startScreen" class="screen on">
+  <h1>SALTLINE CITY</h1>
+  <h2>Neon • Tide • Trouble</h2>
+  <p class="tag">Mara Voss was the fastest courier on the coast — until one bad drop put her in fixer Delgado's pocket. Run his jobs, lift his cars, and stay one step ahead of the Saltline PD.</p>
+  <button id="startBtn" class="btn">START ENGINE</button>
+  <button id="wipeBtn" class="btn ghost">Erase save</button>
+  <div id="startStats"></div>
+  <div class="keys">
+    <kbd>W A S D</kbd> move / drive &nbsp; <kbd>Mouse</kbd> look &nbsp; <kbd>Shift</kbd> run &nbsp; <kbd>E</kbd> enter / steal car<br>
+    <kbd>Click</kbd> shoot &nbsp; <kbd>F</kbd> melee &nbsp; <kbd>Space</kbd> handbrake / jump &nbsp; <kbd>P</kbd> / <kbd>Esc</kbd> pause &nbsp; <kbd>H</kbd> honk
+  </div>
+</div>
+
+<div id="pauseScreen" class="screen">
+  <h1>PAUSED</h1>
+  <p id="pauseStats"></p>
+  <button id="resumeBtn" class="btn">RESUME</button>
+  <button id="restartBtn" class="btn ghost">Respawn at hospital</button>
+</div>
+
+<div id="endScreen" class="screen">
+  <h1 id="endTitle" class="bad">WASTED</h1>
+  <p id="endText"></p>
+  <button id="respawnBtn" class="btn">RESPAWN</button>
+</div>
+
+<div id="fade"></div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

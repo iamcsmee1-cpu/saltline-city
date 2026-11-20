@@ -1,79 +1,129 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// Saltline City — deterministic screenshot scenes for the entry's
+// screenshots/ folder. Open the game with ?shot=cover|city|mission|night
+// and it poses a real, running scene (simulation live, HUD on) that a
+// headless browser can capture. Not used in normal play.
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
+import { PLACES, MARINA_X } from './config.js';
 
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
-    }
-  }
-  return Infinity;
+export function shotName() {
+  const q = new URLSearchParams(location.search).get('shot');
+  return ['cover', 'city', 'mission', 'night'].includes(q) ? q : null;
 }
 
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
-    }
-  }
-  return best;
+// Point the "driver" (real input state) at a ground target.
+function driveToward(G, tx, tz) {
+  const car = G.player.car;
+  if (!car) return;
+  const want = Math.atan2(tx - car.mesh.position.x, tz - car.mesh.position.z);
+  let diff = want - car.angle;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  G.input.keys.delete('a');
+  G.input.keys.delete('d');
+  if (diff > 0.06) G.input.keys.add('a');
+  else if (diff < -0.06) G.input.keys.add('d');
 }
 
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
+function putPlayerInCar(G, car) {
+  G.player.mesh.position.set(car.mesh.position.x - 3, 0.3, car.mesh.position.z);
+  G.player.tryEnter();
+}
+
+export function setupShot(G, name) {
+  const p = G.player;
+  G.shotMode = name;
+  if (name === 'cover') {
+    G.hour = 18.35;
+    const car = G.carManager.spawn(0xd64541, 0, 6, 0, {});
+    car.kind = 'parked';
+    putPlayerInCar(G, car);
+    G.police.setWanted(3);
+    G.police.spawnCopAt(-6, -34);
+    G.police.spawnCopAt(7, -48);
+    G.objectiveLock = {
+      title: 'Deliver the package to <b>Delgado</b>',
+      sub: 'First Run — stage 2/2 • 148 m',
+    };
+    G.input.keys.add('w');
+  } else if (name === 'city') {
+    G.hour = 15.9;
+    // Middle of the (0, 80) intersection, classic behind-player view
+    // looking south-east across both streets toward the beach: traffic
+    // crosses both ways and a stealable car waits at the kerb.
+    p.mesh.position.set(2, 0.3, 86);
+    p.angle = 0.6;
+    p.camYaw = 0.6;
+    p.camPitch = 0.4;
+    const car = G.carManager.spawn(0x2e86de, 6.1, 99, Math.PI, {});
+    car.kind = 'parked';
+    G.objectiveLock = {
+      title: 'Go to <b>Delgado\'s Diner</b>',
+      sub: 'Mission 1 of 5: First Run — walk into the blue marker',
+    };
+  } else if (name === 'mission') {
+    G.hour = 15.4;
+    p.mesh.position.set(MARINA_X, 0.3, 238);
+    p.angle = 0;
+    p.camYaw = 0;
+    p.aiming = true;
+    G.combat.spawnRival(MARINA_X - 3.5, 256);
+    G.combat.spawnRival(MARINA_X + 3, 266);
+    G.combat.spawnRival(MARINA_X - 1, 276);
+    G.objectiveLock = {
+      title: 'Clear the <b>Tide Kings</b> off the pier',
+      sub: 'Marina Muscle — stage 2/4',
+    };
+    G.missions.beam.visible = G.missions.ring.visible = true;
+    G.missions.beam.position.x = MARINA_X;
+    G.missions.beam.position.z = 262;
+    G.missions.ring.position.x = MARINA_X;
+    G.missions.ring.position.z = 262;
+    G.shotWaypoint = { x: MARINA_X, z: 262 };
+  } else if (name === 'night') {
+    G.hour = 22.7;
+    G.save.missionIndex = 5; // story done: free roam, no waypoint
+    const car = G.carManager.spawn(0x8b5cf6, -60, 84.2, Math.PI / 2, {});
+    car.kind = 'parked';
+    putPlayerInCar(G, car);
+    G.police.setWanted(2);
+    G.police.spawnCopAt(-96, 88.2);
+    G.input.keys.add('w');
+    G.shotTarget = { x: 185, z: 84 };
+    G.objectiveLock = {
+      title: 'Free roam — the city is yours',
+      sub: 'Story complete. Steal cars, chase stars, beat your best.',
+    };
   }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
+  void PLACES;
+  // Screenshots read the HUD exactly like a player would.
+  G.hud.show();
+}
+
+// Runs every frame in shot mode, before the world updates.
+export function updateShot(G, dt) {
+  const name = G.shotMode;
+  if (!name) return;
+  G.shotTime = (G.shotTime || 0) + dt;
+  if (name === 'cover') {
+    driveToward(G, 4, 190);
+    // Cap the pace so the pursuit stays in frame behind the player.
+    const car = G.player.car;
+    if (car && car.speed > 23) G.input.keys.delete('w');
+    else G.input.keys.add('w');
+  } else if (name === 'night') {
+    const car = G.player.car;
+    if (car && G.shotTarget) {
+      const d = Math.hypot(G.shotTarget.x - car.mesh.position.x, G.shotTarget.z - car.mesh.position.z);
+      if (d < 14) G.shotTarget = G.shotTarget.x > 0 ? { x: -185, z: 76 } : { x: 185, z: 84 };
+      driveToward(G, G.shotTarget.x, G.shotTarget.z);
+      if (car.speed > 30) G.input.keys.delete('w');
+      else G.input.keys.add('w');
+    }
+  } else if (name === 'mission') {
+    G.player.aiming = true;
+    G.player.angle = 0;
+    G.player.camYaw = 0;
   }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  if (G.objectiveLock) G.objective = { ...G.objectiveLock };
+  if (G.shotTime > 1.2 && !window.__shotReady) window.__shotReady = true;
 }
